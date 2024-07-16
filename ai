@@ -1,0 +1,236 @@
+import pyttsx3
+import time
+import random
+import requests
+import subprocess
+import speech_recognition as sr
+import smtplib
+import imaplib
+import datetime
+import json
+import os
+from email.mime.text import MIMEText
+from email.mime.multipart import MIMEMultipart
+from googleapiclient.discovery import build
+from google_auth_oauthlib.flow import InstalledAppFlow
+from google.auth.transport.requests import Request
+import cv2
+import face_recognition
+
+# Your API keys
+api_key = 'ce22763a9e0059b680088826f0f23a75'  # OpenWeatherMap API key
+news_api_key = 'b6347d633a114fe8b858767f146a237f'  # News API key
+email_user = 'your_email@example.com'
+email_password = 'your_email_password'
+
+# Initialize the text-to-speech engine
+engine = pyttsx3.init()
+
+# Google Calendar API setup
+SCOPES = ['https://www.googleapis.com/auth/calendar.readonly']
+
+def speak(text, lang="en-us"):
+    engine.setProperty('voice', 'english' if lang == "en-us" else 'hindi')
+    engine.say(text)
+    engine.runAndWait()
+    time.sleep(1)  # Adding a short delay after speaking
+
+def greet_user():
+    current_hour = int(time.strftime("%H"))
+    greetings = [
+        ("Good morning!", "सुप्रभात!"),
+        ("Good afternoon!", "नमस्कार!"),
+        ("Good evening!", "शुभ संध्या!"),
+        ("Good night!", "शुभ रात्रि!")
+    ]
+    
+    greeting = greetings[0] if current_hour < 12 else greetings[1] if current_hour < 17 else greetings[2] if current_hour < 21 else greetings[3]
+    speak(f"{greeting[0]} I am Chloë, your assistant. How can I help you today?")
+
+def open_app(app_name, lang="en-us"):
+    app_mapping = {
+        "youtube": "start chrome https://www.youtube.com",
+        "google": "start chrome https://www.google.com",
+        "facebook": "start chrome https://www.facebook.com",
+        "twitter": "start chrome https://www.twitter.com",
+        "instagram": "start chrome https://www.instagram.com"
+    }
+    
+    command = app_mapping.get(app_name.lower())
+    if command:
+        try:
+            subprocess.Popen(command, shell=True)
+            speak(f"Opening {app_name} for you.", lang)
+            time.sleep(3)  # Delay increased to 3 seconds
+            return True
+        except Exception as e:
+            speak(f"Sorry, I couldn't open {app_name}. Error: {e}", lang)
+            return False
+    else:
+        speak(f"I can't find {app_name}. Please check the name.", lang)
+        return False
+
+def get_weather(city_name, lang="en-us"):
+    url = "https://api.openweathermap.org/data/2.5/weather"
+    params = {
+        "q": city_name,
+        "appid": api_key,
+        "units": "metric"
+    }
+
+    try:
+        response = requests.get(url, params=params)
+        data = response.json()
+
+        if response.status_code == 200:
+            weather_description = data['weather'][0]['description']
+            temperature = data['main']['temp']
+            humidity = data['main']['humidity']
+            wind_speed = data['wind']['speed']
+
+            weather_info = f"The weather in {city_name} is {weather_description}. Temperature is {temperature}°C, humidity is {humidity}%, and wind speed is {wind_speed} m/s."
+            speak(weather_info, lang)
+        else:
+            speak(f"Sorry, I couldn't fetch the weather information for {city_name} right now. Error: {data.get('message', 'Unknown error')}", lang)
+    except Exception as e:
+        speak(f"Sorry, there was an error: {e}", lang)
+
+def get_current_time(lang="en-us"):
+    current_time = time.strftime("%H:%M:%S")
+    speak(f"The current time is {current_time}.", lang)
+
+def get_news_from_api(lang="en-us"):
+    try:
+        url = "https://newsapi.org/v2/top-headlines"
+        params = {
+            "country": "in",  # Change the country code as per your preference
+            "apiKey": news_api_key
+        }
+        
+        response = requests.get(url, params=params)
+        data = response.json()
+
+        if response.status_code == 200:
+            articles = data['articles']
+            num_articles = len(articles)
+            news_info = "Here are some of the latest news headlines: "
+            for i in range(min(num_articles, 3)):  # Speak up to 3 articles
+                news_info += articles[i]['title'] + ". "
+            
+            speak(news_info, lang)
+        else:
+            speak(f"Sorry, I couldn't fetch the news right now. Error: {data.get('message', 'Unknown error')}", lang)
+    except Exception as e:
+        speak(f"Sorry, there was an error fetching the news: {e}", lang)
+
+def set_reminder(reminder, lang="en-us"):
+    # Save reminders to a file
+    with open("reminders.txt", "a") as file:
+        file.write(reminder + "\n")
+    speak(f"Reminder set for: {reminder}", lang)
+
+def get_reminders(lang="en-us"):
+    # Read reminders from a file
+    if os.path.exists("reminders.txt"):
+        with open("reminders.txt", "r") as file:
+            reminders = file.readlines()
+        if reminders:
+            speak("Here are your reminders:", lang)
+            for reminder in reminders:
+                speak(reminder.strip(), lang)
+        else:
+            speak("You have no reminders.", lang)
+    else:
+        speak("You have no reminders.", lang)
+
+def convert_currency(amount, from_currency, to_currency, lang="en-us"):
+    url = f"https://api.exchangerate-api.com/v4/latest/{from_currency}"
+    try:
+        response = requests.get(url)
+        data = response.json()
+        rate = data["rates"].get(to_currency)
+        if rate:
+            converted_amount = amount * rate
+            speak(f"{amount} {from_currency} is equal to {converted_amount} {to_currency}", lang)
+        else:
+            speak(f"Sorry, I couldn't find the conversion rate for {to_currency}.", lang)
+    except Exception as e:
+        speak(f"Sorry, there was an error converting the currency. Error: {e}", lang)
+
+def calculator(expression, lang="en-us"):
+    try:
+        result = eval(expression)
+        speak(f"The result of {expression} is {result}", lang)
+    except Exception as e:
+        speak(f"Sorry, there was an error calculating the result. Error: {e}", lang)
+
+def casual_conversation(user_input, lang="en-us"):
+    responses = {
+        "how are you": [
+            "I'm just a program, but thanks for asking!",
+            "I'm here and ready to help!",
+        ],
+        "what's your name": [
+            "I'm Chloë, your virtual assistant.",
+            "You can call me Chloë.",
+        ],
+        "tell me a joke": [
+            "Why did the computer go to the doctor? Because it had a virus!",
+            "Why was the computer cold? It left its Windows open!",
+        ],
+        "thank you": [
+            "You're welcome! I'm here to help.",
+            "No problem! Happy to assist.",
+        ],
+    }
+    
+    response = random.choice(responses.get(user_input.lower(), ["I'm here to help with anything you need!"]))
+    speak(response, lang)
+
+def speech_to_text():
+    recognizer = sr.Recognizer()
+    with sr.Microphone() as source:
+        audio = recognizer.listen(source)
+    try:
+        result = recognizer.recognize_google(audio)
+        return result
+    except sr.UnknownValueError:
+        speak("Sorry, I didn't catch that.")
+        return None
+    except sr.RequestError as e:
+        speak(f"Could not request results; {e}")
+        return None
+
+def send_email(to, subject, body, lang="en-us"):
+    msg = MIMEMultipart()
+    msg['From'] = email_user
+    msg['To'] = to
+    msg['Subject'] = subject
+
+    msg.attach(MIMEText(body, 'plain'))
+
+    try:
+        server = smtplib.SMTP('smtp.gmail.com', 587)
+        server.starttls()
+        server.login(email_user, email_password)
+        text = msg.as_string()
+        server.sendmail(email_user, to, text)
+        server.quit()
+        speak("Email sent successfully.", lang)
+    except Exception as e:
+        speak(f"Failed to send email. Error: {e}", lang)
+
+def read_email(lang="en-us"):
+    try:
+        mail = imaplib.IMAP4_SSL("imap.gmail.com")
+        mail.login(email_user, email_password)
+        mail.select('inbox')
+        
+        _, search_data = mail.search(None, 'UNSEEN')
+        mail_ids = search_data[0].split()
+        
+        if mail_ids:
+            speak(f"You have {len(mail_ids)} new emails.", lang)
+            for mail_id in mail_ids:
+                _, msg_data = mail.fetch(mail_id, '(RFC822)')
+                msg = msg_data[0][
