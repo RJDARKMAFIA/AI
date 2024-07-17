@@ -1,3 +1,4 @@
+#to run this code without installing any modules app is QPYTHON 
 import androidhelper as android
 import time
 import random
