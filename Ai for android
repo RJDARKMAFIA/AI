@@ -1,0 +1,266 @@
+import androidhelper as android
+import time
+import random
+import requests
+import threading
+from datetime import datetime
+import json
+import os
+
+droid = android.Android()
+
+API_KEY = 'ce22763a9e0059b680088826f0f23a75'
+NEWS_API_KEY = 'b6347d633a114fe8b858767f146a237f'
+
+reminders = []
+alarm_file = 'alarms.json'
+
+def save_alarm(alarm_time):
+    alarms = load_alarms()
+    alarms.append(alarm_time)
+    with open(alarm_file, 'w') as f:
+        json.dump(alarms, f)
+
+def load_alarms():
+    if os.path.exists(alarm_file):
+        with open(alarm_file, 'r') as f:
+            return json.load(f)
+    return []
+
+def check_alarms():
+    while True:
+        current_time = datetime.now()
+        alarms = load_alarms()
+        for alarm_time in alarms:
+            if current_time >= datetime.fromisoformat(alarm_time):
+                speak("Alarm ringing!")
+                alarms.remove(alarm_time)
+                with open(alarm_file, 'w') as f:
+                    json.dump(alarms, f)
+        time.sleep(60)
+
+def speak(text, lang="en-us"):
+    droid.ttsSetLanguage(lang)
+    droid.ttsSpeak(text)
+    time.sleep(len(text) // 10)
+
+def greet_user():
+    current_hour = datetime.now().hour
+    greetings = [
+        ("Good morning!", "सुप्रभात!"),
+        ("Good afternoon!", "नमस्कार!"),
+        ("Good evening!", "शुभ संध्या!"),
+        ("Good night!", "शुभ रात्रि!")
+    ]
+    greeting = greetings[0] if current_hour < 12 else greetings[1] if current_hour < 17 else greetings[2] if current_hour < 21 else greetings[3]
+    speak(f"{greeting[0]} I am priya, your assistant. How can I help you today?")
+
+def open_app(app_name, lang="en-us"):
+    app_mapping = {
+        "youtube": "com.google.android.youtube/.HomeActivity",
+        "whatsapp": "com.whatsapp/.Main",
+        "google": "com.google.android.googlequicksearchbox/.SearchActivity",
+        "facebook": "com.facebook.katana/.MainActivity",
+        "twitter": "com.twitter.android/.StartActivity",
+        "instagram": "com.instagram.android/.activity.MainTabActivity"
+    }
+    
+    package_name = app_mapping.get(app_name.lower())
+    if package_name:
+        try:
+            droid.startActivity(package_name)
+            speak(f"Opening {app_name} for you.", lang)
+        except Exception as e:
+            speak(f"Sorry, I couldn't open {app_name}. Error: {e}", lang)
+    else:
+        speak(f"I can't find {app_name}. Please check the name.", lang)
+
+def get_weather(city_name, lang="en-us"):
+    url = "https://api.openweathermap.org/data/2.5/weather"
+    params = {"q": city_name, "appid": API_KEY, "units": "metric"}
+    try:
+        response = requests.get(url, params=params)
+        data = response.json()
+        if response.status_code == 200:
+            weather_info = (
+                f"The weather in {city_name} is {data['weather'][0]['description']}. "
+                f"Temperature is {data['main']['temp']}°C, humidity is {data['main']['humidity']}%, "
+                f"and wind speed is {data['wind']['speed']} m/s."
+            )
+            speak(weather_info, lang)
+        else:
+            speak(f"Sorry, I couldn't fetch the weather information for {city_name} right now.", lang)
+    except Exception as e:
+        speak(f"Sorry, there was an error: {e}", lang)
+
+def get_current_time(lang="en-us"):
+    current_time = time.strftime("%H:%M:%S")
+    speak(f"The current time is {current_time}.", lang)
+
+def get_news_from_api(lang="en-us"):
+    url = "https://newsapi.org/v2/top-headlines"
+    params = {"country": "in", "apiKey": NEWS_API_KEY}
+    try:
+        response = requests.get(url, params=params)
+        data = response.json()
+        if response.status_code == 200:
+            news_info = "Here are some of the latest news headlines: " + ". ".join(article['title'] for article in data['articles'][:3])
+            speak(news_info, lang)
+        else:
+            speak("Sorry, I couldn't fetch the news right now.", lang)
+    except Exception as e:
+        speak(f"Sorry, there was an error fetching the news: {e}", lang)
+
+def set_reminder(reminder_time_str, lang="en-us"):
+    reminder_time = datetime.strptime(reminder_time_str, "%I %p")
+    reminders.append(reminder_time)
+    speak(f"Reminder set for: {reminder_time.strftime('%I:%M %p')}", lang)
+
+def check_reminders():
+    while True:
+        current_time = datetime.now()
+        for reminder_time in reminders:
+            if current_time >= reminder_time:
+                speak("Reminder ringing!", "en-us")
+                reminders.remove(reminder_time)
+        time.sleep(60)
+
+def convert_currency(amount, from_currency, to_currency, lang="en-us"):
+    conversion_rate = 74.0  # Example rate
+    converted_amount = amount * conversion_rate
+    speak(f"{amount} {from_currency} is equal to {converted_amount} {to_currency}", lang)
+
+def calculator(expression, lang="en-us"):
+    try:
+        result = eval(expression)
+        speak(f"The result of {expression} is {result}", lang)
+    except Exception as e:
+        speak(f"Sorry, there was an error calculating the result. Error: {e}", lang)
+        
+def send_whatsapp_message(contact_name, message_content, lang="en-us"):
+    try:
+        droid.smsSend(f"smsto:{contact_name}", message_content)
+        speak(f"Message sent to {contact_name} on WhatsApp: {message_content}", lang)
+    except android.AndroidException as ae:
+        speak(f"Android Exception: {ae}", lang)
+    except Exception as e:
+        speak(f"Sorry, there was an error sending the message to {contact_name}. Error: {e}", lang)
+        
+def process_whatsapp_message(user_input, lang="en-us"):
+    if "send message to" in user_input:
+        contact_name = user_input.split("send message to")[-1].strip()
+        print(f"Contact Name: {contact_name}")  # Debugging
+        speak(f"What message do you want to send to {contact_name} on WhatsApp?", lang)
+        message_content = speech_to_text()
+        print(f"Message Content: {message_content}")  # Debugging
+        if message_content:
+            send_whatsapp_message(contact_name, message_content, lang)
+        else:
+            speak("Sorry, I didn't catch that. Please try again.", lang)
+
+def casual_conversation(user_input, lang="en-us"):
+    responses = {
+        "how are you": [
+            "I'm just a program, but thanks for asking!",
+            "I'm here and ready to help!",
+        ],
+        "what's your name": [
+            "I'm priya, your virtual assistant.",
+            "You can call me priya.",
+        ],
+        "tell me a joke": [
+            "Why did the computer go to the doctor? Because it had a virus!",
+            "Why was the computer cold? It left its Windows open!",
+        ],
+        "thank you": [
+            "You're welcome! I'm here to help.",
+            "No problem! Happy to assist.",
+        ],
+        "hello priya": [
+          "hi there how are you",
+          "hi there I'm priya your assistant like jarvis",
+        ],
+        "i am fine thank you": [
+            "welcome I'm hoping you are fine",
+            "welcome",
+        ], 
+        "hello priya how are you": [
+            "I am fine thank you..... and i hope you are also fine",
+            "I am fine thank you..... and i hope you are doing good",                      
+        ], 
+         
+    }
+    
+    response = random.choice(responses.get(user_input.lower(), ["I'm here to help with anything you need!"]))
+    speak(response, lang)
+
+def speech_to_text():
+    result = droid.recognizeSpeech("Speak now")
+    return result.result if result.result else None
+
+def get_gps_location():
+    try:
+        location = droid.getLastKnownLocation().result
+        if location:
+            return location['passive']['latitude'], location['passive']['longitude']
+        else:
+            speak("Sorry, unable to fetch GPS location.")
+    except Exception as e:
+        speak(f"Error fetching GPS location: {e}")
+
+def set_alarm(time_str, lang="en-us"):
+    time_str = time_str.lower().replace('a.m.', 'AM').replace('p.m.', 'PM')
+    alarm_time = datetime.strptime(time_str, "%I:%M %p")
+    save_alarm(alarm_time.isoformat())
+    droid.setAlarm(alarm_time.timestamp() * 1000)
+    speak(f"Alarm set for {time_str}", lang)
+
+def listen():
+    while True:
+        speak("")
+        user_input = speech_to_text()
+        if user_input:
+            language = "en-us" if any(char.isascii() for char in user_input) else "hi"
+            if "youtube" in user_input.lower():
+                open_app("youtube", language)
+            elif "time" in user_input:
+                get_current_time(language)
+            elif "weather" in user_input:
+                get_weather("नोएडा", language)
+            elif "news" in user_input:
+                get_news_from_api(language)    
+            elif "send message to" in user_input:
+                process_whatsapp_message(user_input, language)
+            elif "reminder" in user_input:
+                reminder_time = user_input.split("reminder for")[-1].strip()
+                set_reminder(reminder_time, language)
+            elif "convert" in user_input:
+                parts = user_input.split()
+                amount = float(parts[1])
+                from_currency = parts[2]
+                to_currency = parts[4]
+                convert_currency(amount, from_currency, to_currency, language)
+            elif "calculate" in user_input:
+                expression = user_input.split("calculate", 1)[1].strip()
+                calculator(expression, language)
+            elif "location" in user_input or "gps" in user_input:
+                latitude, longitude = get_gps_location()
+                if latitude and longitude:
+                    speak(f"Your current GPS coordinates are latitude {latitude} and longitude {longitude}.", language)
+            elif "set alarm for" in user_input:
+                time_part = user_input.split("set alarm for")[-1].strip()
+                set_alarm(time_part, language)
+            elif "exit" in user_input or "quit" in user_input:
+                speak("Goodbye! Have a nice day!", language)
+                break
+            else:
+                casual_conversation(user_input, language)
+
+def main():
+    threading.Thread(target=check_reminders, daemon=True).start()
+    threading.Thread(target=check_alarms, daemon=True).start()
+    greet_user()
+    listen()
+
+if __name__ == "__main__":
+    main()
